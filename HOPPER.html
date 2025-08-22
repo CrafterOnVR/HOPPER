@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>HOPPER</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+    canvas { display: block; }
+    #titleScreen, #skinMenu, #trailMenu {
+      position: absolute; width: 100%; height: 100%;
+      background: linear-gradient(to bottom right, rgb(0,119,255), purple);
+      display: flex; justify-content: center;
+      align-items: center; flex-direction: column; z-index: 10;
+    }
+    .letter {
+      font-size: 80px; color: #0ff; opacity: 0;
+      transform: translateY(-200px);
+      animation: drop 0.6s forwards;
+    }
+    @keyframes drop { to { opacity: 1; transform: translateY(0); } }
+    #playButton, .skinButton, .trailButton {
+      margin-top: 20px; font-size: 24px; padding: 10px 20px;
+      background: #0ff; border: none; border-radius: 5px;
+      opacity: 0; cursor: pointer; transition: opacity 1s;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .skinButton.locked, .trailButton.locked { background: #555; cursor: not-allowed; }
+    .skinPreview, .trailPreview { width: 40px; height: 40px; border: 2px solid #fff; flex-shrink: 0; display: flex; align-items: center; justify-content: center;}
+    .trailPreview span { font-size: 24px; }
+    .cool-next-btn {
+      background: linear-gradient(90deg, #0ff, #00f, #0ff);
+      color: #fff;
+      border: 2px solid #fff;
+      border-radius: 30px;
+      box-shadow: 0 0 20px 5px #0ff, 0 0 40px 10px #00f inset;
+      font-size: 28px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      padding: 16px 40px;
+      margin-top: 40px;
+      position: relative;
+      overflow: hidden;
+      z-index: 1;
+      transition: transform 0.2s, box-shadow 0.2s;
+      animation: cool-glow 2s infinite alternate;
+    }
+    .cool-next-btn:hover {
+      transform: scale(1.08) rotate(-2deg);
+      box-shadow: 0 0 40px 10px #0ff, 0 0 80px 20px #00f inset;
+      background: linear-gradient(90deg, #00f, #0ff, #00f);
+    }
+    @keyframes cool-glow {
+      0% { box-shadow: 0 0 20px 5px #0ff, 0 0 40px 10px #00f inset; }
+      100% { box-shadow: 0 0 40px 15px #0ff, 0 0 80px 30px #00f inset; }
+    }
+    .cool-next-btn::before {
+      content: "";
+      position: absolute;
+      top: -10px; left: -10px; right: -10px; bottom: -10px;
+      border-radius: 40px;
+      background: radial-gradient(circle, #0ff6 0%, #00f0 80%);
+      z-index: -1;
+      filter: blur(8px);
+      animation: cool-pulse 2s infinite alternate;
+    }
+    @keyframes cool-pulse {
+      0% { opacity: 0.7; }
+      100% { opacity: 1; }
+    }
+    .side-back-btn {
+      position: absolute;
+      left: 40px;
+      top: 40px;
+      background: none;
+      border: none;
+      color: #f44;
+      font-size: 48px;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 100;
+      transition: color 0.2s, transform 0.2s;
+      padding: 0 16px 0 0;
+      outline: none;
+      filter: drop-shadow(0 0 8px #f44a);
+    }
+    .side-back-btn:hover {
+      color: #fff;
+      transform: scale(1.15) translateX(-8px);
+      filter: drop-shadow(0 0 16px #fff);
+    }
+  </style>
+</head>
+<body>
+<div id="titleScreen"></div>
+<div id="skinMenu" style="display:none;"></div>
+<div id="trailMenu" style="display:none;"></div>
+<canvas id="game"></canvas>
+<script>
+// --- Combined Script Start ---
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+canvas.width = innerWidth; canvas.height = innerHeight;
+window.addEventListener('resize', () => {
+  canvas.width = innerWidth; canvas.height = innerHeight;
+});
+
+let showGame = false;
+let selectedSkin = localStorage.getItem("selectedSkin") || "Default";
+let totalCoins = parseInt(localStorage.getItem("totalCoins")) || 0;
+
+// --- Trail Shop Data ---
+const trailsData = {
+  "White":      { unlock: 0,    preview: "#fff", type: "line" },
+  "Fire":       { unlock: 50,   preview: "fire", type: "fire" },
+  "Matrix":     { unlock: 100,  preview: "matrix", type: "matrix" },
+  "Explosions": { unlock: 250,  preview: "explosion", type: "explosion" },
+  "Blue Lightning": { unlock: 500, preview: "#00f", type: "lightning" },
+  "Rainbow":    { unlock: 1000, preview: "rainbow", type: "rainbow" }
+};
+let unlockedTrails = JSON.parse(localStorage.getItem("unlockedTrails") || '["White"]');
+let selectedTrail = localStorage.getItem("selectedTrail") || "White";
+
+// --- Skins Data ---
+const skins = {
+  Default: { unlock: 0, cube: "#0ff", trail: "White" },
+  Frost:   { unlock: 10, cube: "#88f", trail: "White" },
+  Magma:   { unlock: 25, cube: "#f33", trail: "White" },
+  Void:    { unlock: 50, cube: "#000", trail: "White" }
+};
+
+// title animation
+const titleScreen = document.getElementById("titleScreen");
+const word = "HOPPER";
+for (let i = 0; i < word.length; i++) {
+  const span = document.createElement("span");
+  span.textContent = word[i];
+  span.className = "letter";
+  span.style.animationDelay = `${i * 0.3}s`;
+  titleScreen.appendChild(span);
+}
+const playButton = document.createElement("button");
+playButton.id = "playButton"; playButton.textContent = "PLAY";
+titleScreen.appendChild(playButton);
+setTimeout(() => playButton.style.opacity = 1, word.length * 300 + 600);
+playButton.onclick = () => { titleScreen.style.display = "none"; showSkinMenu(); };
+
+// skin menu
+function showSkinMenu() {
+  const skinMenu = document.getElementById("skinMenu");
+  skinMenu.innerHTML = `<h2 style="color:#fff">Choose Your Skin</h2>`;
+  for (let name in skins) {
+    const skin = skins[name];
+    const btn = document.createElement("button");
+    btn.className = "skinButton"; btn.style.opacity = 1;
+    const preview = document.createElement("div");
+    preview.className = "skinPreview"; preview.style.background = skin.cube;
+    btn.appendChild(preview);
+    const label = document.createElement("span");
+    label.textContent = `${name} (${skin.unlock} coins)`;
+    btn.appendChild(label);
+    if (totalCoins < skin.unlock) { btn.classList.add("locked"); btn.disabled = true; }
+    btn.onclick = () => {
+      selectedSkin = name; localStorage.setItem("selectedSkin", name);
+      skinMenu.style.display = "none";
+      showTrailMenu();
+    };
+    skinMenu.appendChild(btn);
+  }
+  // Add "Next" button to go to trail menu if already selected
+  const nextBtn = document.createElement("button");
+  nextBtn.textContent = "Next: Trail Shop";
+  nextBtn.className = "cool-next-btn";
+  nextBtn.style.opacity = 1;
+  nextBtn.onclick = () => { skinMenu.style.display = "none"; showTrailMenu(); };
+  skinMenu.appendChild(nextBtn);
+
+  // Add side back button (red arrow)
+  let backBtn = document.createElement("button");
+  backBtn.className = "side-back-btn";
+  backBtn.innerHTML = "&lt; -";
+  backBtn.onclick = () => {
+    skinMenu.style.display = "none";
+    titleScreen.style.display = "flex";
+    hideSideBackBtn();
+  };
+  // Remove any previous side-back-btn to avoid duplicates
+  let oldBtn = document.querySelector(".side-back-btn");
+  if (oldBtn) oldBtn.remove();
+  document.body.appendChild(backBtn);
+
+  skinMenu.style.display = "flex";
+}
+
+// trail menu
+function showTrailMenu() {
+  const trailMenu = document.getElementById("trailMenu");
+  trailMenu.innerHTML = `<h2 style="color:#fff">Choose Your Trail</h2>`;
+  for (let name in trailsData) {
+    const trail = trailsData[name];
+    const btn = document.createElement("button");
+    btn.className = "trailButton"; btn.style.opacity = 1;
+    const preview = document.createElement("div");
+    preview.className = "trailPreview";
+    // Preview rendering
+    if (trail.type === "fire") {
+      preview.style.background = "linear-gradient(orange, red)";
+      preview.innerHTML = "🔥";
+    } else if (trail.type === "matrix") {
+      preview.style.background = "#111";
+      preview.innerHTML = `<span style="color:#0f0;">1<br>0</span>`;
+    } else if (trail.type === "explosion") {
+      preview.style.background = "#222";
+      preview.innerHTML = "💥";
+    } else if (trail.type === "lightning") {
+      preview.style.background = "#00f";
+      preview.innerHTML = "⚡";
+    } else if (trail.type === "rainbow") {
+      preview.style.background = "linear-gradient(90deg, red, orange, yellow, green, blue, indigo, violet)";
+      preview.innerHTML = "";
+    } else {
+      preview.style.background = trail.preview;
+    }
+    btn.appendChild(preview);
+    const label = document.createElement("span");
+    label.textContent = `${name} (${trail.unlock} coins)`;
+    btn.appendChild(label);
+
+    // Unlock by reaching totalCoins goal, don't subtract coins!
+    if (totalCoins < trail.unlock) {
+      btn.classList.add("locked"); btn.disabled = true;
+    }
+
+    btn.onclick = () => {
+      if (totalCoins >= trail.unlock) {
+        if (!unlockedTrails.includes(name)) {
+          unlockedTrails.push(name);
+          localStorage.setItem("unlockedTrails", JSON.stringify(unlockedTrails));
+        }
+        selectedTrail = name;
+        localStorage.setItem("selectedTrail", name);
+        trailMenu.style.display = "none";
+        showGame = true; // <-- THIS LINE ENSURES THE GAME STARTS
+        resetLevel();
+      }
+    };
+    // Show as locked if not unlocked
+    if (!unlockedTrails.includes(name) && totalCoins < trail.unlock) btn.classList.add("locked");
+    trailMenu.appendChild(btn);
+  }
+
+  // Add side back button (red arrow)
+  let backBtn = document.createElement("button");
+  backBtn.className = "side-back-btn";
+  backBtn.innerHTML = "&lt; -";
+  backBtn.onclick = () => {
+    trailMenu.style.display = "none";
+    showSkinMenu();
+    hideSideBackBtn();
+  };
+  // Remove any previous side-back-btn to avoid duplicates
+  let oldBtn = document.querySelector(".side-back-btn");
+  if (oldBtn) oldBtn.remove();
+  document.body.appendChild(backBtn);
+
+  trailMenu.style.display = "flex";
+}
+
+// Remove side back button when entering game
+function hideSideBackBtn() {
+  let oldBtn = document.querySelector(".side-back-btn");
+  if (oldBtn) oldBtn.remove();
+}
+
+// Patch: Hide side back button when game starts
+const origResetLevel = resetLevel;
+resetLevel = function() {
+  hideSideBackBtn();
+  origResetLevel();
+};
+
+// --- Game Vars ---
+let cube = { x: 200, y: 500, vx: 0, vy: 0, size: 30, coins: 0, squash: 1 };
+let gravity = 0.5, jumpPower = -16;
+let moveAccel = 1.2, maxSpeed = 7;
+let platforms = [], coins = [], trails = [];
+let orb = { x: 200, y: -1000, size: 40 };
+let cameraY = 0, cameraX = 0, screenFlash = 0, shake = 0;
+
+// --- Random dark background color for each level ---
+let levelBgColor = "#181a22";
+let levelGlowColor = "#0ff";
+function randomDarkColor() {
+  // HSL: hue random, sat 20-40%, light 8-18%
+  let h = Math.floor(Math.random() * 360);
+  let s = 20 + Math.random() * 20;
+  let l = 8 + Math.random() * 10;
+  return `hsl(${h},${s}%,${l}%)`;
+}
+function getGlowColor(bg) {
+  // Extract hue from bg, set sat 100%, light 60%
+  let m = bg.match(/hsl\((\d+),/);
+  let h = m ? parseInt(m[1]) : 180;
+  return `hsl(${h},100%,60%)`;
+}
+
+function resetLevel() {
+  // Set random dark background and matching glow color
+  levelBgColor = randomDarkColor();
+  levelGlowColor = getGlowColor(levelBgColor);
+
+  cube.x = 200;
+  cube.y = 500; 
+  cube.vx = 0;
+  cube.vy = 0; 
+  cameraY = 0;
+  cameraX = 0;
+  cube.coins = 0;
+  platforms = []; coins = []; trails = [];
+
+  // Ground platform
+  platforms.push({ x: 0, y: canvas.height - 40, w: canvas.width, h: 40 });
+
+  // First platform above ground
+  let prev = { x: 200, y: cube.y - 80 };
+  platforms.push({ x: prev.x, y: prev.y, w: 100, h: 20 });
+
+  // Platform generation with X-gap correction (spread out on X)
+  let minYGap = 120, maxYGap = 200;
+  let minXGap = -canvas.width * 0.7, maxXGap = canvas.width * 0.7;
+  let platformPositions = [];
+  let numPlatforms = 19 * 3;
+  let maxJumpX = 320; // Maximum X distance player can jump (tweak as needed)
+  let platformW = 100;
+
+  for (let i = 0; i < numPlatforms; i++) {
+    let py = prev.y - (minYGap + Math.random() * (maxYGap - minYGap));
+    let px = prev.x + (minXGap + Math.random() * (maxXGap - minXGap));
+    px = Math.max(0, Math.min(canvas.width - platformW, px));
+    // Check X gap from previous
+    let dx = px - prev.x;
+    if (Math.abs(dx) > maxJumpX) {
+      // Insert filler platforms between prev and px
+      let steps = Math.ceil(Math.abs(dx) / maxJumpX);
+      let stepX = dx / steps;
+      for (let s = 1; s < steps; s++) {
+        let fillerX = prev.x + stepX * s;
+        let fillerY = prev.y - ((py - prev.y) * s / steps);
+        platforms.push({ x: fillerX, y: fillerY, w: platformW, h: 20 });
+        platformPositions.push({ x: fillerX, y: fillerY });
+      }
+      // Move px closer to prev.x within jump range
+      px = prev.x + Math.sign(dx) * maxJumpX;
+    }
+    platforms.push({ x: px, y: py, w: platformW, h: 20 });
+    platformPositions.push({ x: px, y: py });
+    prev = { x: px, y: py };
+  }
+
+  // Place 9 coins on random platforms (3x as many as before, excluding ground)
+  let coinPlatforms = platformPositions.slice();
+  coinPlatforms.push({ x: 200, y: cube.y - 80 }); // include first platform
+  let chosen = [];
+  let numCoins = 9;
+  while (chosen.length < numCoins && coinPlatforms.length > 0) {
+    let idx = Math.floor(Math.random() * coinPlatforms.length);
+    chosen.push(coinPlatforms.splice(idx, 1)[0]);
+  }
+  for (let c of chosen) {
+    coins.push({ x: c.x + 40, y: c.y - 20, size: 10, collected: false, flash: 0 });
+  }
+
+  // Place orb above the top platform
+  let topPlatform = platforms.reduce((a, b) => (a.y < b.y ? a : b));
+  orb.x = topPlatform.x + topPlatform.w / 2;
+  orb.y = topPlatform.y - 80;
+}
+resetLevel();
+
+// --- Drawing Helpers ---
+function drawCube() {
+  ctx.save();
+  ctx.translate(
+    cube.x + cube.size/2 - cameraX + (shake ? Math.random()*4 - 2 : 0),
+    cube.y - cameraY + cube.size/2
+  );
+  ctx.scale(1, cube.squash);
+  ctx.fillStyle = skins[selectedSkin].cube;
+  ctx.fillRect(-cube.size/2, -cube.size/2, cube.size, cube.size);
+  ctx.restore();
+}
+function drawPlatforms() {
+  for (let p of platforms) {
+    ctx.save();
+    ctx.shadowColor = levelGlowColor;
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = "#444";
+    ctx.fillRect(p.x - cameraX, p.y - cameraY, p.w, p.h);
+    ctx.shadowBlur = 0; // Remove blur for outline
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#fff";
+    ctx.strokeRect(p.x - cameraX, p.y - cameraY, p.w, p.h);
+    ctx.restore();
+  }
+}
+function drawCoins() {
+  for (let c of coins) {
+    if (!c.collected) {
+      ctx.fillStyle = `rgba(255,215,0,${1 - c.flash})`;
+      ctx.beginPath();
+      ctx.arc(c.x - cameraX, c.y - cameraY, c.size + c.flash*10, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+}
+function drawOrb() {
+  let pulse = Math.sin(Date.now()/200)*10 + orb.size;
+  ctx.save();
+  ctx.shadowColor = levelGlowColor;
+  ctx.shadowBlur = 30;
+  ctx.fillStyle = "lime";
+  ctx.beginPath();
+  ctx.arc(orb.x - cameraX, orb.y - cameraY, pulse, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+function drawTrails() {
+  for (let t of trails) {
+    // Trail rendering by type
+    let type = trailsData[selectedTrail]?.type || "line";
+    if (type === "fire") {
+      ctx.fillStyle = Math.random() > 0.5 ? "orange" : "red";
+      ctx.globalAlpha = 0.7 + Math.random() * 0.3;
+      ctx.beginPath();
+      ctx.arc(t.x - cameraX, t.y - cameraY, 6 + Math.random()*2, 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    } else if (type === "matrix") {
+      ctx.font = "bold 16px monospace";
+      ctx.fillStyle = "#0f0";
+      ctx.fillText(Math.random() > 0.5 ? "1" : "0", t.x - cameraX, t.y - cameraY);
+    } else if (type === "explosion") {
+      for (let i = 0; i < 4; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let r = 6 + Math.random() * 6;
+        ctx.fillStyle = `hsl(${Math.floor(Math.random()*60)},100%,60%)`;
+        ctx.beginPath();
+        ctx.arc(t.x - cameraX + Math.cos(angle)*r, t.y - cameraY + Math.sin(angle)*r, 2+Math.random()*2, 0, Math.PI*2);
+        ctx.fill();
+      }
+    } else if (type === "lightning") {
+      ctx.strokeStyle = "#0cf";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(t.x - cameraX, t.y - cameraY);
+      for (let i = 0; i < 3; i++) {
+        let dx = (Math.random()-0.5)*8;
+        let dy = (Math.random()-0.5)*8;
+        ctx.lineTo(t.x - cameraX + dx, t.y - cameraY + dy);
+      }
+      ctx.stroke();
+    } else if (type === "rainbow") {
+      let hue = (Date.now()/5 + t.x + t.y) % 360;
+      ctx.fillStyle = `hsl(${hue},100%,50%)`;
+      ctx.fillRect(t.x - cameraX, t.y - cameraY, 6, 6);
+    } else {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(t.x - cameraX, t.y - cameraY, 4, 4);
+    }
+  }
+}
+
+// --- Game Loop ---
+let onGround = false;
+let keys = {};
+
+function update() {
+  // Improved movement: acceleration and max speed
+  if (keys["ArrowLeft"]) {
+    cube.vx = -maxSpeed;
+  } else if (keys["ArrowRight"]) {
+    cube.vx = maxSpeed;
+  } else {
+    cube.vx = 0;
+  }
+
+  cube.vy += gravity;
+  cube.y += cube.vy;
+  cube.x += cube.vx;
+
+  onGround = false;
+
+  // floor collision
+  if (cube.y > canvas.height - cube.size) {
+    cube.y = canvas.height - cube.size;
+    cube.vy = 0;
+    onGround = true;
+  }
+
+  // platform collision
+  for (let p of platforms) {
+    if (
+      cube.x + cube.size > p.x &&
+      cube.x < p.x + p.w &&
+      cube.y + cube.size > p.y &&
+      cube.y + cube.size < p.y + p.h &&
+      cube.vy > 0
+    ) {
+      cube.y = p.y - cube.size;
+      cube.vy = 0;
+      cube.squash = 0.7;
+      onGround = true;
+    }
+  }
+
+  // coin collection
+  for (let c of coins) {
+    if (!c.collected) {
+      let dx = cube.x + cube.size / 2 - c.x;
+      let dy = cube.y + cube.size / 2 - c.y;
+      if (Math.hypot(dx, dy) < cube.size / 2 + c.size) {
+        c.collected = true;
+        cube.coins++;
+        totalCoins++;
+        localStorage.setItem("totalCoins", totalCoins);
+        c.flash = 1;
+      }
+    }
+    if (c.flash > 0) c.flash -= 0.05;
+  }
+
+  // orb collection
+  let dx = cube.x + cube.size / 2 - orb.x;
+  let dy = cube.y + cube.size / 2 - orb.y;
+  if (Math.hypot(dx, dy) < cube.size / 2 + orb.size) {
+    screenFlash = 1;
+    shake = 10;
+    resetLevel();
+  }
+
+  // trails
+  trails.push({
+    x: cube.x + cube.size / 2,
+    y: cube.y + cube.size / 2
+  });
+  if (trails.length > 100) trails.shift();
+
+  // ease squash back to normal
+  cube.squash += (1 - cube.squash) * 0.1;
+
+  // decay flash & shake
+  if (screenFlash > 0) screenFlash -= 0.05;
+  if (shake > 0) shake--;
+
+  // CAMERA FOLLOW X AND Y
+  cameraX += ((cube.x + cube.size/2 - canvas.width/2) - cameraX) * 0.1;
+  cameraY += ((cube.y - 200) - cameraY) * 0.1;
+}
+
+function draw() {
+  // Level background
+  ctx.fillStyle = levelBgColor;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawPlatforms();
+  drawCoins();
+  drawOrb();
+  drawTrails();
+  drawCube();
+
+  if (screenFlash > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${screenFlash})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  ctx.fillStyle = "#fff";
+  ctx.fillText(`Coins: ${cube.coins} | Total: ${totalCoins}`, 20, 30);
+}
+
+function loop() {
+  if (showGame) {
+    update();
+    draw();
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+
+// controls
+window.addEventListener("keydown", (e) => {
+  keys[e.code] = true;
+  if (e.code === "ArrowUp" && onGround) {
+    cube.vy = jumpPower;
+    cube.squash = 0.7;
+    onGround = false;
+  }
+});
+
+window.addEventListener("keyup", (e) => {
+  keys[e.code] = false;
+});
+
+// --- Combined Script End ---
+</script>
